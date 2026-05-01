@@ -1,6 +1,8 @@
 @echo off
 setlocal enabledelayedexpansion
 
+set "PATH=C:\Go\bin;%PATH%"
+
 set "PROJECT_DIR=%~dp0"
 set "BINARY_NAME=cli-proxy-api"
 for /f %%a in ('powershell -command "Get-Date -Format yyyyMMddHHmmss"') do set "VERSION=dev-%%a"

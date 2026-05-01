@@ -2247,6 +2247,9 @@ func (h *Handler) RequestCodebuddyToken(c *gin.Context) {
 			"domain":        authBundle.TokenData.Domain,
 			"timestamp":     time.Now().UnixMilli(),
 		}
+		if authBundle.AccountInfo != nil && authBundle.AccountInfo.UID != "" {
+			metadata["uid"] = authBundle.AccountInfo.UID
+		}
 		if expired != "" {
 			metadata["expired"] = expired
 		}
@@ -2339,6 +2342,9 @@ func (h *Handler) RequestCodebuddyIntlToken(c *gin.Context) {
 			"expires_at":    authBundle.TokenData.ExpiresAt,
 			"domain":        authBundle.TokenData.Domain,
 			"timestamp":     time.Now().UnixMilli(),
+		}
+		if authBundle.AccountInfo != nil && authBundle.AccountInfo.UID != "" {
+			metadata["uid"] = authBundle.AccountInfo.UID
 		}
 		if expired != "" {
 			metadata["expired"] = expired

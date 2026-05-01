@@ -121,6 +121,9 @@ func (a CodebuddyAuthenticator) Login(ctx context.Context, cfg *config.Config, o
 		"domain":        authBundle.TokenData.Domain,
 		"timestamp":     time.Now().UnixMilli(),
 	}
+	if authBundle.AccountInfo != nil && authBundle.AccountInfo.UID != "" {
+		metadata["uid"] = authBundle.AccountInfo.UID
+	}
 	if expired != "" {
 		metadata["expired"] = expired
 	}

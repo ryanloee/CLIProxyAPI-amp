@@ -24,10 +24,10 @@ import (
 
 const (
 	// CodebuddyAPIBaseURL is the default upstream API endpoint for Tencent Codebuddy.
-	CodebuddyAPIBaseURL = "https://api.lkeap.cloud.tencent.com/coding/v3"
+	CodebuddyAPIBaseURL = "https://www.codebuddy.ai"
 
 	// CodebuddyCNAPIBaseURL is the base URL for Codebuddy CN (domestic China).
-	CodebuddyCNAPIBaseURL = "https://api.lkeap.cloud.tencent.com/coding/v3"
+	CodebuddyCNAPIBaseURL = "https://copilot.tencent.com"
 )
 
 // CodebuddyExecutor is a stateless executor for Tencent Codebuddy API using OpenAI-compatible chat completions.
@@ -49,9 +49,13 @@ func (e *CodebuddyExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth
 	if req == nil {
 		return nil
 	}
-	token := codebuddyCreds(auth)
-	if strings.TrimSpace(token) != "" {
-		req.Header.Set("Authorization", "Bearer "+token)
+	uid, token := codebuddyCreds(auth)
+	applyCodebuddyBearerToken(req, uid, token)
+	if domain := codebuddyDomain(auth); domain != "" {
+		req.Header.Set("X-Domain", domain)
+	}
+	if uid != "" {
+		req.Header.Set("X-User-Id", uid)
 	}
 	var attrs map[string]string
 	if auth != nil {
@@ -77,12 +81,16 @@ func (e *CodebuddyExecutor) HttpRequest(ctx context.Context, auth *cliproxyauth.
 	return httpClient.Do(httpReq)
 }
 
-// codebuddyBaseURL resolves the API base URL from auth attributes or falls back to the default.
+// codebuddyBaseURL resolves the API base URL from auth domain, attributes, or falls back to the default.
 func codebuddyBaseURL(auth *cliproxyauth.Auth) string {
 	if auth != nil && auth.Attributes != nil {
 		if v := strings.TrimSpace(auth.Attributes["base_url"]); v != "" {
 			return v
 		}
+	}
+	domain := codebuddyDomain(auth)
+	if domain == "copilot.tencent.com" || domain == "www.codebuddy.cn" {
+		return CodebuddyCNAPIBaseURL
 	}
 	return CodebuddyAPIBaseURL
 }
@@ -92,11 +100,14 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	from := opts.SourceFormat
 	if from.String() == "claude" {
 		auth.Attributes["base_url"] = codebuddyBaseURL(auth)
+		uid, token := codebuddyCreds(auth)
+		auth.Attributes["api_key"] = codebuddyBearerToken(uid, token)
 		return e.ClaudeExecutor.Execute(ctx, auth, req, opts)
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	token := codebuddyCreds(auth)
+	uid, token := codebuddyCreds(auth)
+	domain := codebuddyDomain(auth)
 
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.TrackFailure(ctx, &err)
@@ -127,12 +138,12 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	body = helps.ApplyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel, requestPath)
 
 	baseURL := codebuddyBaseURL(auth)
-	url := strings.TrimRight(baseURL, "/") + "/chat/completions"
+	url := strings.TrimRight(baseURL, "/") + "/v2/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return resp, err
 	}
-	applyCodebuddyHeaders(httpReq, token, false)
+	applyCodebuddyHeaders(httpReq, uid, token, false, domain)
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
@@ -193,11 +204,14 @@ func (e *CodebuddyExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	from := opts.SourceFormat
 	if from.String() == "claude" {
 		auth.Attributes["base_url"] = codebuddyBaseURL(auth)
+		uid, token := codebuddyCreds(auth)
+		auth.Attributes["api_key"] = codebuddyBearerToken(uid, token)
 		return e.ClaudeExecutor.ExecuteStream(ctx, auth, req, opts)
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
-	token := codebuddyCreds(auth)
+	uid, token := codebuddyCreds(auth)
+	domain := codebuddyDomain(auth)
 
 	reporter := helps.NewUsageReporter(ctx, e.Identifier(), baseModel, auth)
 	defer reporter.TrackFailure(ctx, &err)
@@ -232,12 +246,12 @@ func (e *CodebuddyExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	body = helps.ApplyPayloadConfigWithRoot(e.cfg, baseModel, to.String(), "", body, originalTranslated, requestedModel, requestPath)
 
 	baseURL := codebuddyBaseURL(auth)
-	url := strings.TrimRight(baseURL, "/") + "/chat/completions"
+	url := strings.TrimRight(baseURL, "/") + "/v2/chat/completions"
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	applyCodebuddyHeaders(httpReq, token, true)
+	applyCodebuddyHeaders(httpReq, uid, token, true, domain)
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
@@ -373,10 +387,14 @@ func (e *CodebuddyExecutor) Refresh(ctx context.Context, auth *cliproxyauth.Auth
 }
 
 // applyCodebuddyHeaders sets required headers for Codebuddy API requests.
-func applyCodebuddyHeaders(r *http.Request, token string, stream bool) {
+func applyCodebuddyHeaders(r *http.Request, uid, token string, stream bool, domain string) {
 	r.Header.Set("Content-Type", "application/json")
-	if strings.TrimSpace(token) != "" {
-		r.Header.Set("Authorization", "Bearer "+token)
+	applyCodebuddyBearerToken(r, uid, token)
+	if domain != "" {
+		r.Header.Set("X-Domain", domain)
+	}
+	if uid != "" {
+		r.Header.Set("X-User-Id", uid)
 	}
 	r.Header.Set("User-Agent", "CodebuddyCode/1.0")
 	if stream {
@@ -386,23 +404,53 @@ func applyCodebuddyHeaders(r *http.Request, token string, stream bool) {
 	r.Header.Set("Accept", "application/json")
 }
 
-// codebuddyCreds extracts the access token from auth.
-func codebuddyCreds(a *cliproxyauth.Auth) (token string) {
+// applyCodebuddyBearerToken sets the Authorization header with Bearer token and X-User-Id.
+func applyCodebuddyBearerToken(r *http.Request, uid, token string) {
+	if strings.TrimSpace(token) == "" {
+		return
+	}
+	r.Header.Set("Authorization", "Bearer "+token)
+	if uid != "" {
+		r.Header.Set("X-User-Id", uid)
+	}
+}
+
+// codebuddyBearerToken returns the bearer token for the Authorization header.
+func codebuddyBearerToken(uid, token string) string {
+	_ = uid
+	return token
+}
+
+// codebuddyCreds extracts uid and access token from auth.
+func codebuddyCreds(a *cliproxyauth.Auth) (uid, token string) {
 	if a == nil {
-		return ""
+		return "", ""
 	}
 	// Check metadata first (OAuth flow stores tokens here)
 	if a.Metadata != nil {
+		if v, ok := a.Metadata["uid"].(string); ok {
+			uid = v
+		}
 		if v, ok := a.Metadata["access_token"].(string); ok && strings.TrimSpace(v) != "" {
-			return v
+			token = v
 		}
 	}
 	// Fallback to attributes (API key style)
 	if a.Attributes != nil {
 		if v := a.Attributes["access_token"]; v != "" {
-			return v
+			token = v
 		}
 		if v := a.Attributes["api_key"]; v != "" {
+			token = v
+		}
+	}
+	return uid, token
+}
+
+// codebuddyDomain extracts the domain from auth metadata.
+func codebuddyDomain(a *cliproxyauth.Auth) string {
+	if a != nil && a.Metadata != nil {
+		if v, ok := a.Metadata["domain"].(string); ok {
 			return v
 		}
 	}
