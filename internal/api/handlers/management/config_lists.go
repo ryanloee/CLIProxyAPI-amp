@@ -1191,6 +1191,128 @@ func normalizeVertexCompatKey(entry *config.VertexCompatKey) {
 	entry.Models = normalized
 }
 
+// codebuddy-api-key: []CodebuddyKey
+func (h *Handler) GetCodebuddyKeys(c *gin.Context) {
+	c.JSON(200, gin.H{"codebuddy-api-key": h.codebuddyKeysWithAuthIndex()})
+}
+
+func (h *Handler) PutCodebuddyKeys(c *gin.Context) {
+	data, err := c.GetRawData()
+	if err != nil {
+		c.JSON(400, gin.H{"error": "failed to read body"})
+		return
+	}
+	var keys []config.CodebuddyKey
+	if err = json.Unmarshal(data, &keys); err != nil {
+		c.JSON(400, gin.H{"error": "invalid json"})
+		return
+	}
+	for i := range keys {
+		normalizeCodebuddyKey(&keys[i])
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cfg.CodebuddyKey = keys
+	h.persistLocked(c)
+}
+
+func (h *Handler) PatchCodebuddyKey(c *gin.Context) {
+	type codebuddyKeyPatch struct {
+		APIKey         *string              `json:"api-key"`
+		Prefix         *string              `json:"prefix"`
+		BaseURL        *string              `json:"base-url"`
+		ProxyURL       *string              `json:"proxy-url"`
+		Models         []config.CodebuddyModel `json:"models"`
+		Headers        map[string]string    `json:"headers"`
+		ExcludedModels []string             `json:"excluded-models"`
+		Priority       *int                 `json:"priority"`
+	}
+	var patch codebuddyKeyPatch
+	if err := c.BindJSON(&patch); err != nil {
+		c.JSON(400, gin.H{"error": "invalid json"})
+		return
+	}
+	apiKey := strings.TrimSpace(c.Query("api-key"))
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	for i := range h.cfg.CodebuddyKey {
+		entry := &h.cfg.CodebuddyKey[i]
+		if apiKey != "" && !strings.EqualFold(entry.APIKey, apiKey) {
+			continue
+		}
+		if patch.APIKey != nil {
+			entry.APIKey = *patch.APIKey
+		}
+		if patch.Prefix != nil {
+			entry.Prefix = *patch.Prefix
+		}
+		if patch.BaseURL != nil {
+			entry.BaseURL = *patch.BaseURL
+		}
+		if patch.ProxyURL != nil {
+			entry.ProxyURL = *patch.ProxyURL
+		}
+		if patch.Models != nil {
+			entry.Models = patch.Models
+		}
+		if patch.Headers != nil {
+			entry.Headers = patch.Headers
+		}
+		if patch.ExcludedModels != nil {
+			entry.ExcludedModels = patch.ExcludedModels
+		}
+		if patch.Priority != nil {
+			entry.Priority = *patch.Priority
+		}
+		normalizeCodebuddyKey(entry)
+	}
+	h.persistLocked(c)
+}
+
+func (h *Handler) DeleteCodebuddyKey(c *gin.Context) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if val := strings.TrimSpace(c.Query("api-key")); val != "" {
+		filtered := make([]config.CodebuddyKey, 0, len(h.cfg.CodebuddyKey))
+		for _, entry := range h.cfg.CodebuddyKey {
+			if !strings.EqualFold(strings.TrimSpace(entry.APIKey), val) {
+				filtered = append(filtered, entry)
+			}
+		}
+		h.cfg.CodebuddyKey = filtered
+	} else {
+		h.cfg.CodebuddyKey = nil
+	}
+	h.persistLocked(c)
+}
+
+func normalizeCodebuddyKey(entry *config.CodebuddyKey) {
+	if entry == nil {
+		return
+	}
+	entry.APIKey = strings.TrimSpace(entry.APIKey)
+	entry.Prefix = strings.TrimSpace(entry.Prefix)
+	entry.BaseURL = strings.TrimSpace(entry.BaseURL)
+	entry.ProxyURL = strings.TrimSpace(entry.ProxyURL)
+	entry.Headers = config.NormalizeHeaders(entry.Headers)
+	entry.ExcludedModels = config.NormalizeExcludedModels(entry.ExcludedModels)
+	if len(entry.Models) == 0 {
+		return
+	}
+	normalized := make([]config.CodebuddyModel, 0, len(entry.Models))
+	for i := range entry.Models {
+		model := entry.Models[i]
+		model.Name = strings.TrimSpace(model.Name)
+		model.Alias = strings.TrimSpace(model.Alias)
+		if model.Name == "" && model.Alias == "" {
+			continue
+		}
+		normalized = append(normalized, model)
+	}
+	entry.Models = normalized
+}
+
 func sanitizedOAuthModelAlias(entries map[string][]config.OAuthModelAlias) map[string][]config.OAuthModelAlias {
 	if len(entries) == 0 {
 		return nil

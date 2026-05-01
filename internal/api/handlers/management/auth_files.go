@@ -24,6 +24,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/antigravity"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/claude"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codebuddy"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codex"
 	geminiAuth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/kimi"
@@ -2173,6 +2174,195 @@ func (h *Handler) RequestKimiToken(c *gin.Context) {
 		fmt.Println("You can now use Kimi services through this CLI")
 		CompleteOAuthSession(state)
 		CompleteOAuthSessionsByProvider("kimi")
+	}()
+
+	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
+}
+
+func (h *Handler) RequestCodebuddyToken(c *gin.Context) {
+	ctx := context.Background()
+	ctx = PopulateAuthContext(ctx, c)
+
+	fmt.Println("Initializing Codebuddy authentication...")
+
+	state := fmt.Sprintf("cbd-%d", time.Now().UnixNano())
+	authSvc := codebuddy.NewCodebuddyAuth(h.cfg)
+
+	deviceFlow, errStartLogin := authSvc.StartLogin(ctx)
+	if errStartLogin != nil {
+		log.Errorf("Failed to start Codebuddy login: %v", errStartLogin)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start codebuddy login"})
+		return
+	}
+	authURL := deviceFlow.VerificationURIComplete
+	if authURL == "" {
+		authURL = deviceFlow.VerificationURI
+	}
+
+	RegisterOAuthSession(state, "codebuddy")
+
+	go func() {
+		fmt.Println("Waiting for Codebuddy authentication...")
+		authBundle, errWait := authSvc.WaitForAuthorization(ctx, deviceFlow)
+		if errWait != nil {
+			SetOAuthSessionError(state, "Authentication failed")
+			fmt.Printf("Codebuddy authentication failed: %v\n", errWait)
+			return
+		}
+
+		var expired string
+		if authBundle.TokenData.ExpiresAt > 0 {
+			expired = time.Unix(authBundle.TokenData.ExpiresAt, 0).UTC().Format(time.RFC3339)
+		}
+
+		label := "Codebuddy User"
+		tokenStorage := &codebuddy.CodebuddyTokenStorage{
+			AccessToken:  authBundle.TokenData.AccessToken,
+			RefreshToken: authBundle.TokenData.RefreshToken,
+			TokenType:    authBundle.TokenData.TokenType,
+			ExpiresAt:    authBundle.TokenData.ExpiresAt,
+			Domain:       authBundle.TokenData.Domain,
+			Expired:      expired,
+			Type:         "codebuddy",
+		}
+		if authBundle.AccountInfo != nil {
+			if authBundle.AccountInfo.Email != "" {
+				label = authBundle.AccountInfo.Email
+				tokenStorage.Email = authBundle.AccountInfo.Email
+			}
+			if authBundle.AccountInfo.UID != "" {
+				tokenStorage.UID = authBundle.AccountInfo.UID
+			}
+			if authBundle.AccountInfo.Nickname != "" {
+				tokenStorage.Nickname = authBundle.AccountInfo.Nickname
+			}
+		}
+
+		metadata := map[string]any{
+			"type":          "codebuddy",
+			"access_token":  authBundle.TokenData.AccessToken,
+			"refresh_token": authBundle.TokenData.RefreshToken,
+			"token_type":    authBundle.TokenData.TokenType,
+			"expires_at":    authBundle.TokenData.ExpiresAt,
+			"domain":        authBundle.TokenData.Domain,
+			"timestamp":     time.Now().UnixMilli(),
+		}
+		if expired != "" {
+			metadata["expired"] = expired
+		}
+
+		fileName := fmt.Sprintf("codebuddy-%d.json", time.Now().UnixMilli())
+		record := &coreauth.Auth{
+			ID:       fileName,
+			Provider: "codebuddy",
+			FileName: fileName,
+			Label:    label,
+			Storage:  tokenStorage,
+			Metadata: metadata,
+		}
+		savedPath, errSave := h.saveTokenRecord(ctx, record)
+		if errSave != nil {
+			log.Errorf("Failed to save Codebuddy tokens: %v", errSave)
+			SetOAuthSessionError(state, "Failed to save authentication tokens")
+			return
+		}
+
+		fmt.Printf("Codebuddy authentication successful! Token saved to %s\n", savedPath)
+		CompleteOAuthSession(state)
+		CompleteOAuthSessionsByProvider("codebuddy")
+	}()
+
+	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
+}
+
+func (h *Handler) RequestCodebuddyIntlToken(c *gin.Context) {
+	ctx := context.Background()
+	ctx = PopulateAuthContext(ctx, c)
+
+	state := fmt.Sprintf("cbi-%d", time.Now().UnixNano())
+	authSvc := codebuddy.NewCodebuddyIntlAuth(h.cfg)
+
+	deviceFlow, errStartLogin := authSvc.StartLogin(ctx)
+	if errStartLogin != nil {
+		log.Errorf("Failed to start Codebuddy Intl login: %v", errStartLogin)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start codebuddy intl login"})
+		return
+	}
+	authURL := deviceFlow.VerificationURIComplete
+	if authURL == "" {
+		authURL = deviceFlow.VerificationURI
+	}
+
+	RegisterOAuthSession(state, "codebuddy-intl")
+
+	go func() {
+		authBundle, errWait := authSvc.WaitForAuthorization(ctx, deviceFlow)
+		if errWait != nil {
+			SetOAuthSessionError(state, "Authentication failed")
+			log.Errorf("Codebuddy Intl authentication failed: %v", errWait)
+			return
+		}
+
+		var expired string
+		if authBundle.TokenData.ExpiresAt > 0 {
+			expired = time.Unix(authBundle.TokenData.ExpiresAt, 0).UTC().Format(time.RFC3339)
+		}
+
+		label := "Codebuddy Intl User"
+		tokenStorage := &codebuddy.CodebuddyTokenStorage{
+			AccessToken:  authBundle.TokenData.AccessToken,
+			RefreshToken: authBundle.TokenData.RefreshToken,
+			TokenType:    authBundle.TokenData.TokenType,
+			ExpiresAt:    authBundle.TokenData.ExpiresAt,
+			Domain:       authBundle.TokenData.Domain,
+			Expired:      expired,
+			Type:         "codebuddy-intl",
+		}
+		if authBundle.AccountInfo != nil {
+			if authBundle.AccountInfo.Email != "" {
+				label = authBundle.AccountInfo.Email
+				tokenStorage.Email = authBundle.AccountInfo.Email
+			}
+			if authBundle.AccountInfo.UID != "" {
+				tokenStorage.UID = authBundle.AccountInfo.UID
+			}
+			if authBundle.AccountInfo.Nickname != "" {
+				tokenStorage.Nickname = authBundle.AccountInfo.Nickname
+			}
+		}
+
+		metadata := map[string]any{
+			"type":          "codebuddy-intl",
+			"access_token":  authBundle.TokenData.AccessToken,
+			"refresh_token": authBundle.TokenData.RefreshToken,
+			"token_type":    authBundle.TokenData.TokenType,
+			"expires_at":    authBundle.TokenData.ExpiresAt,
+			"domain":        authBundle.TokenData.Domain,
+			"timestamp":     time.Now().UnixMilli(),
+		}
+		if expired != "" {
+			metadata["expired"] = expired
+		}
+
+		fileName := fmt.Sprintf("codebuddy-intl-%d.json", time.Now().UnixMilli())
+		record := &coreauth.Auth{
+			ID:       fileName,
+			Provider: "codebuddy-intl",
+			FileName: fileName,
+			Label:    label,
+			Storage:  tokenStorage,
+			Metadata: metadata,
+		}
+		savedPath, errSave := h.saveTokenRecord(ctx, record)
+		if errSave != nil {
+			log.Errorf("Failed to save Codebuddy Intl tokens: %v", errSave)
+			SetOAuthSessionError(state, "Failed to save authentication tokens")
+			return
+		}
+
+		log.Infof("Codebuddy Intl authentication successful! Token saved to %s", savedPath)
+		CompleteOAuthSession(state)
+		CompleteOAuthSessionsByProvider("codebuddy-intl")
 	}()
 
 	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})

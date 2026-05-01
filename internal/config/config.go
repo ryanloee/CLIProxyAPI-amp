@@ -116,6 +116,9 @@ type Config struct {
 	// OpenAICompatibility defines OpenAI API compatibility configurations for external providers.
 	OpenAICompatibility []OpenAICompatibility `yaml:"openai-compatibility" json:"openai-compatibility"`
 
+	// CodebuddyKey defines a list of Tencent Codebuddy API key configurations.
+	CodebuddyKey []CodebuddyKey `yaml:"codebuddy-api-key" json:"codebuddy-api-key"`
+
 	// VertexCompatAPIKey defines Vertex AI-compatible API key configurations for third-party providers.
 	// Used for services that use Vertex AI-style paths but with simple API key authentication.
 	VertexCompatAPIKey []VertexCompatKey `yaml:"vertex-api-key" json:"vertex-api-key"`
@@ -510,6 +513,51 @@ type GeminiModel struct {
 
 func (m GeminiModel) GetName() string  { return m.Name }
 func (m GeminiModel) GetAlias() string { return m.Alias }
+
+// CodebuddyKey represents the configuration for a Tencent Codebuddy API key,
+// including the API key itself and an optional base URL for the API endpoint.
+type CodebuddyKey struct {
+	// APIKey is the authentication key for accessing Codebuddy API services.
+	APIKey string `yaml:"api-key" json:"api-key"`
+
+	// Priority controls selection preference when multiple credentials match.
+	// Higher values are preferred; defaults to 0.
+	Priority int `yaml:"priority,omitempty" json:"priority,omitempty"`
+
+	// Prefix optionally namespaces models for this credential.
+	Prefix string `yaml:"prefix,omitempty" json:"prefix,omitempty"`
+
+	// BaseURL optionally overrides the Codebuddy API endpoint.
+	// Defaults to https://api.lkeap.cloud.tencent.com/coding/v3
+	BaseURL string `yaml:"base-url,omitempty" json:"base-url,omitempty"`
+
+	// ProxyURL overrides the global proxy setting for this API key if provided.
+	ProxyURL string `yaml:"proxy-url,omitempty" json:"proxy-url,omitempty"`
+
+	// Models defines upstream model names and aliases for request routing.
+	Models []CodebuddyModel `yaml:"models,omitempty" json:"models,omitempty"`
+
+	// Headers optionally adds extra HTTP headers for requests sent with this key.
+	Headers map[string]string `yaml:"headers,omitempty" json:"headers,omitempty"`
+
+	// ExcludedModels lists model IDs that should be excluded for this provider.
+	ExcludedModels []string `yaml:"excluded-models,omitempty" json:"excluded-models,omitempty"`
+}
+
+func (k CodebuddyKey) GetAPIKey() string  { return k.APIKey }
+func (k CodebuddyKey) GetBaseURL() string { return k.BaseURL }
+
+// CodebuddyModel describes a mapping between an alias and the actual upstream model name.
+type CodebuddyModel struct {
+	// Name is the upstream model identifier used when issuing requests.
+	Name string `yaml:"name" json:"name"`
+
+	// Alias is the client-facing model name that maps to Name.
+	Alias string `yaml:"alias" json:"alias"`
+}
+
+func (m CodebuddyModel) GetName() string  { return m.Name }
+func (m CodebuddyModel) GetAlias() string { return m.Alias }
 
 // OpenAICompatibility represents the configuration for OpenAI API compatibility
 // with external providers, allowing model aliases to be routed through OpenAI API format.

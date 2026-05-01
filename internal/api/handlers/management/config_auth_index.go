@@ -28,6 +28,11 @@ type vertexCompatKeyWithAuthIndex struct {
 	AuthIndex string `json:"auth-index,omitempty"`
 }
 
+type codebuddyKeyWithAuthIndex struct {
+	config.CodebuddyKey
+	AuthIndex string `json:"auth-index,omitempty"`
+}
+
 type openAICompatibilityAPIKeyWithAuthIndex struct {
 	config.OpenAICompatibilityAPIKey
 	AuthIndex string `json:"auth-index,omitempty"`
@@ -159,6 +164,35 @@ func (h *Handler) codexKeysWithAuthIndex() []codexKeyWithAuthIndex {
 		out[i] = codexKeyWithAuthIndex{
 			CodexKey:  entry,
 			AuthIndex: authIndex,
+		}
+	}
+	return out
+}
+
+func (h *Handler) codebuddyKeysWithAuthIndex() []codebuddyKeyWithAuthIndex {
+	if h == nil {
+		return nil
+	}
+	liveIndexByID := h.liveAuthIndexByID()
+
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.cfg == nil {
+		return nil
+	}
+
+	idGen := synthesizer.NewStableIDGenerator()
+	out := make([]codebuddyKeyWithAuthIndex, len(h.cfg.CodebuddyKey))
+	for i := range h.cfg.CodebuddyKey {
+		entry := h.cfg.CodebuddyKey[i]
+		authIndex := ""
+		if key := strings.TrimSpace(entry.APIKey); key != "" {
+			id, _ := idGen.Next("codebuddy:apikey", key, entry.BaseURL)
+			authIndex = liveIndexByID[id]
+		}
+		out[i] = codebuddyKeyWithAuthIndex{
+			CodebuddyKey: entry,
+			AuthIndex:    authIndex,
 		}
 	}
 	return out

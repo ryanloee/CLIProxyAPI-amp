@@ -631,6 +631,11 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PATCH("/vertex-api-key", s.mgmt.PatchVertexCompatKey)
 		mgmt.DELETE("/vertex-api-key", s.mgmt.DeleteVertexCompatKey)
 
+		mgmt.GET("/codebuddy-api-key", s.mgmt.GetCodebuddyKeys)
+		mgmt.PUT("/codebuddy-api-key", s.mgmt.PutCodebuddyKeys)
+		mgmt.PATCH("/codebuddy-api-key", s.mgmt.PatchCodebuddyKey)
+		mgmt.DELETE("/codebuddy-api-key", s.mgmt.DeleteCodebuddyKey)
+
 		mgmt.GET("/oauth-excluded-models", s.mgmt.GetOAuthExcludedModels)
 		mgmt.PUT("/oauth-excluded-models", s.mgmt.PutOAuthExcludedModels)
 		mgmt.PATCH("/oauth-excluded-models", s.mgmt.PatchOAuthExcludedModels)
@@ -656,6 +661,8 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/gemini-cli-auth-url", s.mgmt.RequestGeminiCLIToken)
 		mgmt.GET("/antigravity-auth-url", s.mgmt.RequestAntigravityToken)
 		mgmt.GET("/kimi-auth-url", s.mgmt.RequestKimiToken)
+		mgmt.GET("/codebuddy-auth-url", s.mgmt.RequestCodebuddyToken)
+			mgmt.GET("/codebuddy-intl-auth-url", s.mgmt.RequestCodebuddyIntlToken)
 		mgmt.POST("/oauth-callback", s.mgmt.PostOAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
 	}

@@ -2064,5 +2064,105 @@
         ]
       }
     }
+  ],
+  "codebuddy": [
+    {
+      "id": "tc-code-latest",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "tencent",
+      "type": "openai",
+      "display_name": "Codebuddy Auto",
+      "description": "Tencent Codebuddy Auto - Best model selected automatically",
+      "context_length": 128000,
+      "max_completion_tokens": 16384
+    },
+    {
+      "id": "hunyuan-turbos",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "tencent",
+      "type": "openai",
+      "display_name": "Hunyuan TurboS",
+      "description": "Tencent Hunyuan TurboS - Fast and powerful",
+      "context_length": 128000,
+      "max_completion_tokens": 16384
+    },
+    {
+      "id": "hunyuan-t1",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "tencent",
+      "type": "openai",
+      "display_name": "Hunyuan T1",
+      "description": "Tencent Hunyuan T1 - Reasoning model",
+      "context_length": 128000,
+      "max_completion_tokens": 16384,
+      "thinking": {
+        "min": 1024,
+        "max": 32000,
+        "zero_allowed": true
+      }
+    },
+    {
+      "id": "hunyuan-2.0-instruct",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "tencent",
+      "type": "openai",
+      "display_name": "Hunyuan 2.0 Instruct",
+      "description": "Tencent Hunyuan 2.0 Instruct - Instruction-following model",
+      "context_length": 128000,
+      "max_completion_tokens": 16384
+    },
+    {
+      "id": "hunyuan-2.0-thinking",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "tencent",
+      "type": "openai",
+      "display_name": "Hunyuan 2.0 Thinking",
+      "description": "Tencent Hunyuan 2.0 Thinking - Extended reasoning model",
+      "context_length": 128000,
+      "max_completion_tokens": 16384,
+      "thinking": {
+        "min": 1024,
+        "max": 32000,
+        "zero_allowed": true
+      }
+    },
+    {
+      "id": "minimax-m2.5",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "minimax",
+      "type": "openai",
+      "display_name": "MiniMax M2.5",
+      "description": "MiniMax M2.5 via Tencent Codebuddy",
+      "context_length": 128000,
+      "max_completion_tokens": 16384
+    },
+    {
+      "id": "kimi-k2.5",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "moonshot",
+      "type": "openai",
+      "display_name": "Kimi K2.5",
+      "description": "Kimi K2.5 via Tencent Codebuddy",
+      "context_length": 131072,
+      "max_completion_tokens": 32768
+    },
+    {
+      "id": "glm-5",
+      "object": "model",
+      "created": 1769472000,
+      "owned_by": "zhipu",
+      "type": "openai",
+      "display_name": "GLM-5",
+      "description": "Zhipu GLM-5 via Tencent Codebuddy",
+      "context_length": 128000,
+      "max_completion_tokens": 16384
+    }
   ]
 }
