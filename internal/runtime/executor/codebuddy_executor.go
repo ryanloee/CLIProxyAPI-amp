@@ -12,6 +12,7 @@ import (
 
 	codebuddyauth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codebuddy"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/config"
+	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/runtime/executor/helps"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/thinking"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/util"
@@ -19,6 +20,7 @@ import (
 	cliproxyexecutor "github.com/router-for-me/CLIProxyAPI/v6/sdk/cliproxy/executor"
 	sdktranslator "github.com/router-for-me/CLIProxyAPI/v6/sdk/translator"
 	log "github.com/sirupsen/logrus"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -132,6 +134,7 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	if err != nil {
 		return resp, err
 	}
+	body = applyCodebuddyDefaultReasoning(body, baseModel, e.Identifier())
 
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
@@ -236,6 +239,7 @@ func (e *CodebuddyExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	if err != nil {
 		return nil, err
 	}
+	body = applyCodebuddyDefaultReasoning(body, baseModel, e.Identifier())
 
 	body, err = sjson.SetBytes(body, "stream_options.include_usage", true)
 	if err != nil {
@@ -464,4 +468,26 @@ func stripCodebuddyPrefix(model string) string {
 		return model[10:]
 	}
 	return model
+}
+
+// applyCodebuddyDefaultReasoning injects default reasoning_effort for CodeBuddy models
+// that support thinking but have no explicit config (no suffix, no body parameter).
+// This matches the native CodeBuddy extension behavior: reasoning_effort="medium" by default.
+func applyCodebuddyDefaultReasoning(body []byte, baseModel string, providerKey string) []byte {
+	if gjson.GetBytes(body, "reasoning_effort").Exists() {
+		return body
+	}
+	modelInfo := registry.LookupModelInfo(baseModel, providerKey)
+	if modelInfo == nil || modelInfo.Thinking == nil {
+		return body
+	}
+	result, err := sjson.SetBytes(body, "reasoning_effort", "medium")
+	if err != nil {
+		return body
+	}
+	log.WithFields(log.Fields{
+		"model":    baseModel,
+		"provider": providerKey,
+	}).Debug("codebuddy: applied default reasoning_effort=medium |")
+	return result
 }
