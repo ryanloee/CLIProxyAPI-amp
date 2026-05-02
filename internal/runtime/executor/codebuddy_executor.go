@@ -46,6 +46,19 @@ func NewCodebuddyExecutor(cfg *config.Config) *CodebuddyExecutor {
 // Identifier returns the executor identifier.
 func (e *CodebuddyExecutor) Identifier() string { return "codebuddy" }
 
+// CodebuddyIntlExecutor wraps CodebuddyExecutor with a different identifier for the international version.
+type CodebuddyIntlExecutor struct {
+	*CodebuddyExecutor
+}
+
+// NewCodebuddyIntlExecutor creates a new Codebuddy Intl executor.
+func NewCodebuddyIntlExecutor(cfg *config.Config) *CodebuddyIntlExecutor {
+	return &CodebuddyIntlExecutor{CodebuddyExecutor: NewCodebuddyExecutor(cfg)}
+}
+
+// Identifier returns the executor identifier for the international version.
+func (e *CodebuddyIntlExecutor) Identifier() string { return "codebuddy-intl" }
+
 // PrepareRequest injects Codebuddy credentials into the outgoing HTTP request.
 func (e *CodebuddyExecutor) PrepareRequest(req *http.Request, auth *cliproxyauth.Auth) error {
 	if req == nil {
@@ -98,6 +111,9 @@ func codebuddyBaseURL(auth *cliproxyauth.Auth) string {
 }
 
 // Execute performs a non-streaming chat completion request to Codebuddy.
+// For the International endpoint (www.codebuddy.ai), non-streaming is not
+// supported upstream, so this method internally calls ExecuteStream and
+// collects the full response.
 func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	from := opts.SourceFormat
 	if from.String() == "claude" {
@@ -105,6 +121,12 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 		uid, token := codebuddyCreds(auth)
 		auth.Attributes["api_key"] = codebuddyBearerToken(uid, token)
 		return e.ClaudeExecutor.Execute(ctx, auth, req, opts)
+	}
+
+	// International endpoint does not support non-streaming requests.
+	// Redirect to ExecuteStream internally and collect the result.
+	if isCodebuddyIntl(auth) {
+		return e.executeIntlViaStream(ctx, auth, req, opts)
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
@@ -235,11 +257,15 @@ func (e *CodebuddyExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 		return nil, fmt.Errorf("codebuddy executor: failed to set model in payload: %w", err)
 	}
 
-	body, err = thinking.ApplyThinking(body, req.Model, from.String(), "openai", e.Identifier())
-	if err != nil {
-		return nil, err
+	intl := isCodebuddyIntl(auth)
+	if !intl {
+		body, err = thinking.ApplyThinking(body, req.Model, from.String(), "openai", e.Identifier())
+		if err != nil {
+			return nil, err
+		}
+		body = applyCodebuddyDefaultReasoning(body, baseModel, e.Identifier())
 	}
-	body = applyCodebuddyDefaultReasoning(body, baseModel, e.Identifier())
+	body = ensureIntlSystemMessage(body, intl)
 
 	body, err = sjson.SetBytes(body, "stream_options.include_usage", true)
 	if err != nil {
@@ -329,6 +355,41 @@ func (e *CodebuddyExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 		}
 	}()
 	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
+}
+
+// executeIntlViaStream handles non-streaming requests for the Codebuddy
+// International endpoint by executing a streaming request internally and
+// collecting all chunks into a single response payload.
+func (e *CodebuddyExecutor) executeIntlViaStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
+	streamResult, err := e.ExecuteStream(ctx, auth, req, opts)
+	if err != nil {
+		return cliproxyexecutor.Response{}, err
+	}
+	var collected [][]byte
+	for chunk := range streamResult.Chunks {
+		if chunk.Err != nil {
+			return cliproxyexecutor.Response{}, chunk.Err
+		}
+		collected = append(collected, chunk.Payload)
+	}
+	// Merge collected streaming chunks into a single non-stream response.
+	// The last chunk usually contains the full usage info.
+	if len(collected) == 0 {
+		return cliproxyexecutor.Response{Payload: []byte("{}"), Headers: streamResult.Headers}, nil
+	}
+	// Find the last chunk with usage data as the base for non-stream translation
+	var lastData []byte
+	for i := len(collected) - 1; i >= 0; i-- {
+		if len(collected[i]) > 0 {
+			lastData = collected[i]
+			break
+		}
+	}
+	from := opts.SourceFormat
+	to := sdktranslator.FromString("openai")
+	var param any
+	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, req.Payload, lastData, &param)
+	return cliproxyexecutor.Response{Payload: out, Headers: streamResult.Headers}, nil
 }
 
 // CountTokens estimates token count for Codebuddy requests.
@@ -459,6 +520,42 @@ func codebuddyDomain(a *cliproxyauth.Auth) string {
 		}
 	}
 	return ""
+}
+
+// isCodebuddyIntl returns true when the auth belongs to the Codebuddy
+// International endpoint (www.codebuddy.ai), which requires streaming-only
+// requests and a mandatory system message.
+func isCodebuddyIntl(auth *cliproxyauth.Auth) bool {
+	return codebuddyDomain(auth) == "www.codebuddy.ai"
+}
+
+// ensureIntlSystemMessage injects a default system message into the request
+// body when the Codebuddy International API is in use and no system message
+// is present. The international server rejects requests without a system role.
+func ensureIntlSystemMessage(body []byte, intl bool) []byte {
+	if !intl {
+		return body
+	}
+	// Check if any message already has role "system"
+	messages := gjson.GetBytes(body, "messages")
+	if !messages.Exists() || !messages.IsArray() {
+		return body
+	}
+	for _, m := range messages.Array() {
+		if m.Get("role").String() == "system" {
+			return body
+		}
+	}
+	// Prepend a default system message by rebuilding the array
+	raw := gjson.GetBytes(body, "messages").Raw
+	newMsgs := `[{"role":"system","content":"You are a helpful assistant."}` + "," + raw[1:]
+	result, err := sjson.SetRawBytes(body, "messages", []byte(newMsgs))
+	if err != nil {
+		log.WithField("error", err).Debug("codebuddy-intl: failed to inject system message")
+		return body
+	}
+	log.Debug("codebuddy-intl: injected default system message")
+	return result
 }
 
 // stripCodebuddyPrefix removes the "codebuddy-" prefix from model names for the upstream API.

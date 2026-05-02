@@ -28,6 +28,22 @@ func (CodebuddyAuthenticator) Provider() string {
 	return "codebuddy"
 }
 
+// CodebuddyIntlAuthenticator handles auth for the international version (www.codebuddy.ai).
+// It reuses the same OAuth flow but registers under a different provider key.
+type CodebuddyIntlAuthenticator struct {
+	CodebuddyAuthenticator
+}
+
+// NewCodebuddyIntlAuthenticator constructs a new Codebuddy Intl authenticator.
+func NewCodebuddyIntlAuthenticator() Authenticator {
+	return &CodebuddyIntlAuthenticator{}
+}
+
+// Provider returns the provider key for codebuddy-intl.
+func (CodebuddyIntlAuthenticator) Provider() string {
+	return "codebuddy-intl"
+}
+
 // RefreshLead returns the duration before token expiry when refresh should occur.
 func (CodebuddyAuthenticator) RefreshLead() *time.Duration {
 	return &codebuddyRefreshLead
