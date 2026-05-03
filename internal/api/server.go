@@ -632,6 +632,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PUT("/codebuddy-api-key", s.mgmt.PutCodebuddyKeys)
 		mgmt.PATCH("/codebuddy-api-key", s.mgmt.PatchCodebuddyKey)
 		mgmt.DELETE("/codebuddy-api-key", s.mgmt.DeleteCodebuddyKey)
+		mgmt.GET("/codebuddy-usage", s.mgmt.GetCodebuddyUsage)
 
 		mgmt.GET("/oauth-excluded-models", s.mgmt.GetOAuthExcludedModels)
 		mgmt.PUT("/oauth-excluded-models", s.mgmt.PutOAuthExcludedModels)
