@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -234,29 +235,20 @@ func queryUserResource(ctx context.Context, client *http.Client, baseURL, token,
 		TotalCount: totalCount.Int(),
 	}
 	for _, pkg := range accounts.Array() {
-		total := pkg.Get("CapacitySize")
-		remain := pkg.Get("CapacityRemain")
-		used := pkg.Get("CapacityUsed")
-		// Fallback to snake_case if PascalCase fields are empty
-		if total.Int() == 0 {
-			total = pkg.Get("total")
-		}
-		if remain.Int() == 0 {
-			remain = pkg.Get("remain")
-		}
-		if used.Int() == 0 {
-			used = pkg.Get("used")
-		}
+		// Cycle-level usage (Precise string fields first, then integer fields, then package-level fallback)
+		cycleTotal := preciseOrInt(pkg, "CycleCapacitySizePrecise", "CycleCapacitySize", "CapacitySizePrecise", "CapacitySize")
+		cycleRemain := preciseOrInt(pkg, "CycleCapacityRemainPrecise", "CycleCapacityRemain", "CapacityRemainPrecise", "CapacityRemain")
+		used := cycleTotal - cycleRemain
 		result.Packages = append(result.Packages, codebuddyResourcePackage{
 			PackageName: pkg.Get("PackageName").String(),
-			Total:       total.Int(),
-			Remain:      remain.Int(),
-			Used:        used.Int(),
+			Total:       cycleTotal,
+			Remain:      cycleRemain,
+			Used:        used,
 			Status:      int(pkg.Get("Status").Int()),
 			StartTime:   pkg.Get("CycleStartTime").String(),
 			EndTime:     pkg.Get("CycleEndTime").String(),
-			CycleRemain: pkg.Get("CycleCapacityRemain").Int(),
-			CycleTotal:  pkg.Get("CycleCapacitySize").Int(),
+			CycleRemain: cycleRemain,
+			CycleTotal:  cycleTotal,
 		})
 	}
 	return result, nil
@@ -436,6 +428,21 @@ func (h *Handler) GetCodebuddyUsage(c *gin.Context) {
 		results = []codebuddyUsageResult{}
 	}
 	c.JSON(http.StatusOK, gin.H{"usage": results})
+}
+
+func preciseOrInt(pkg gjson.Result, keys ...string) int64 {
+	for _, key := range keys {
+		v := pkg.Get(key)
+		if s := strings.TrimSpace(v.String()); s != "" {
+			if n, err := strconv.ParseInt(s, 10, 64); err == nil {
+				return n
+			}
+		}
+		if n := v.Int(); n != 0 {
+			return n
+		}
+	}
+	return 0
 }
 
 func summarizeBody(data []byte) string {
