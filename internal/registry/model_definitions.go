@@ -10,19 +10,20 @@ const codexBuiltinImageModelID = "gpt-image-2"
 
 // staticModelsJSON mirrors the top-level structure of models.json.
 type staticModelsJSON struct {
-	Claude      []*ModelInfo `json:"claude"`
-	Gemini      []*ModelInfo `json:"gemini"`
-	Vertex      []*ModelInfo `json:"vertex"`
-	GeminiCLI   []*ModelInfo `json:"gemini-cli"`
-	AIStudio    []*ModelInfo `json:"aistudio"`
-	CodexFree   []*ModelInfo `json:"codex-free"`
-	CodexTeam   []*ModelInfo `json:"codex-team"`
-	CodexPlus   []*ModelInfo `json:"codex-plus"`
-	CodexPro    []*ModelInfo `json:"codex-pro"`
-	Kimi        []*ModelInfo `json:"kimi"`
-	Antigravity []*ModelInfo `json:"antigravity"`
+	Claude        []*ModelInfo `json:"claude"`
+	Gemini        []*ModelInfo `json:"gemini"`
+	Vertex        []*ModelInfo `json:"vertex"`
+	GeminiCLI     []*ModelInfo `json:"gemini-cli"`
+	AIStudio      []*ModelInfo `json:"aistudio"`
+	CodexFree     []*ModelInfo `json:"codex-free"`
+	CodexTeam     []*ModelInfo `json:"codex-team"`
+	CodexPlus     []*ModelInfo `json:"codex-plus"`
+	CodexPro      []*ModelInfo `json:"codex-pro"`
+	Kimi          []*ModelInfo `json:"kimi"`
+	Antigravity   []*ModelInfo `json:"antigravity"`
 	Codebuddy     []*ModelInfo `json:"codebuddy"`
 	CodebuddyIntl []*ModelInfo `json:"codebuddy-intl"`
+	Trae          []*ModelInfo `json:"trae"`
 }
 
 // GetClaudeModels returns the standard Claude model definitions.
@@ -88,6 +89,11 @@ func GetCodebuddyModels() []*ModelInfo {
 // GetCodebuddyIntlModels returns the Codebuddy International (www.codebuddy.ai) model definitions.
 func GetCodebuddyIntlModels() []*ModelInfo {
 	return cloneModelInfos(getModels().CodebuddyIntl)
+}
+
+// GetTraeModels returns the standard Trae international model definitions.
+func GetTraeModels() []*ModelInfo {
+	return cloneModelInfos(getModels().Trae)
 }
 
 // WithCodexBuiltins injects hard-coded Codex-only model definitions that should
@@ -202,6 +208,8 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetCodebuddyModels()
 	case "codebuddy-intl":
 		return GetCodebuddyIntlModels()
+	case "trae":
+		return GetTraeModels()
 	default:
 		return nil
 	}
@@ -226,6 +234,7 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 		data.Antigravity,
 		data.Codebuddy,
 		data.CodebuddyIntl,
+		data.Trae,
 	}
 	for _, models := range allModels {
 		for _, m := range models {
