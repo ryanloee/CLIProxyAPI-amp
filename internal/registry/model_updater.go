@@ -124,8 +124,9 @@ func tryRefreshModels(ctx context.Context, label string) {
 	// Detect changes before updating store.
 	changed := detectChangedProviders(oldData, parsed)
 
-	// Update store with new data regardless.
+	// Update store with new data, preserving codebuddy/trae models from embedded data.
 	modelsCatalogStore.mu.Lock()
+	preserveCustomProviders(modelsCatalogStore.data, parsed)
 	modelsCatalogStore.data = parsed
 	modelsCatalogStore.mu.Unlock()
 
@@ -189,6 +190,23 @@ func fetchModelsFromRemote(ctx context.Context) (*staticModelsJSON, string) {
 	return nil, ""
 }
 
+// preserveCustomProviders copies codebuddy/trae models from the old catalog into
+// the new one when the remote source does not include them.
+func preserveCustomProviders(oldData, newData *staticModelsJSON) {
+	if oldData == nil || newData == nil {
+		return
+	}
+	if len(newData.Codebuddy) == 0 && len(oldData.Codebuddy) > 0 {
+		newData.Codebuddy = oldData.Codebuddy
+	}
+	if len(newData.CodebuddyIntl) == 0 && len(oldData.CodebuddyIntl) > 0 {
+		newData.CodebuddyIntl = oldData.CodebuddyIntl
+	}
+	if len(newData.Trae) == 0 && len(oldData.Trae) > 0 {
+		newData.Trae = oldData.Trae
+	}
+}
+
 // detectChangedProviders compares two model catalogs and returns provider names
 // whose model definitions differ. Codex tiers (free/team/plus/pro) are grouped
 // under a single "codex" provider.
@@ -215,6 +233,9 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"codex", oldData.CodexPro, newData.CodexPro},
 		{"kimi", oldData.Kimi, newData.Kimi},
 		{"antigravity", oldData.Antigravity, newData.Antigravity},
+		{"codebuddy", oldData.Codebuddy, newData.Codebuddy},
+		{"codebuddy-intl", oldData.CodebuddyIntl, newData.CodebuddyIntl},
+		{"trae", oldData.Trae, newData.Trae},
 	}
 
 	seen := make(map[string]bool, len(sections))

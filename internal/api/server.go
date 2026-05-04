@@ -633,6 +633,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.PATCH("/codebuddy-api-key", s.mgmt.PatchCodebuddyKey)
 		mgmt.DELETE("/codebuddy-api-key", s.mgmt.DeleteCodebuddyKey)
 		mgmt.GET("/codebuddy-usage", s.mgmt.GetCodebuddyUsage)
+		mgmt.GET("/trae-usage", s.mgmt.GetTraeUsage)
 
 		mgmt.GET("/oauth-excluded-models", s.mgmt.GetOAuthExcludedModels)
 		mgmt.PUT("/oauth-excluded-models", s.mgmt.PutOAuthExcludedModels)
@@ -661,6 +662,7 @@ func (s *Server) registerManagementRoutes() {
 		mgmt.GET("/kimi-auth-url", s.mgmt.RequestKimiToken)
 		mgmt.GET("/codebuddy-auth-url", s.mgmt.RequestCodebuddyToken)
 			mgmt.GET("/codebuddy-intl-auth-url", s.mgmt.RequestCodebuddyIntlToken)
+			mgmt.GET("/trae-auth-url", s.mgmt.RequestTraeToken)
 		mgmt.POST("/oauth-callback", s.mgmt.PostOAuthCallback)
 		mgmt.GET("/get-auth-status", s.mgmt.GetAuthStatus)
 	}
