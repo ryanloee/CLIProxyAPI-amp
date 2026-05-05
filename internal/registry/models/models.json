@@ -2067,17 +2067,6 @@
   ],
   "codebuddy": [
     {
-      "id": "default",
-      "object": "model",
-      "created": 1769472000,
-      "owned_by": "tencent",
-      "type": "openai",
-      "display_name": "Codebuddy Auto",
-      "description": "Tencent Codebuddy Auto - Best model selected automatically",
-      "context_length": 200000,
-      "max_completion_tokens": 32000
-    },
-    {
       "id": "glm-5.1",
       "object": "model",
       "created": 1769472000,
@@ -2245,44 +2234,6 @@
         "max": 32000,
         "zero_allowed": true,
         "dynamic_allowed": true
-      }
-    },
-    {
-      "id": "hunyuan-chat",
-      "object": "model",
-      "created": 1769472000,
-      "owned_by": "tencent",
-      "type": "openai",
-      "display_name": "Hunyuan TurboS",
-      "description": "Tencent Hunyuan TurboS - Fast and powerful",
-      "context_length": 200000,
-      "max_completion_tokens": 8192
-    },
-    {
-      "id": "hunyuan-2.0-instruct",
-      "object": "model",
-      "created": 1769472000,
-      "owned_by": "tencent",
-      "type": "openai",
-      "display_name": "Hunyuan 2.0 Instruct",
-      "description": "Tencent Hunyuan 2.0 Instruct - Instruction-following model",
-      "context_length": 128000,
-      "max_completion_tokens": 16000
-    },
-    {
-      "id": "hunyuan-2.0-thinking",
-      "object": "model",
-      "created": 1769472000,
-      "owned_by": "tencent",
-      "type": "openai",
-      "display_name": "Hunyuan 2.0 Thinking",
-      "description": "Tencent Hunyuan 2.0 Thinking - Extended reasoning model",
-      "context_length": 128000,
-      "max_completion_tokens": 16000,
-      "thinking": {
-        "min": 1024,
-        "max": 32000,
-        "zero_allowed": true
       }
     },
     {

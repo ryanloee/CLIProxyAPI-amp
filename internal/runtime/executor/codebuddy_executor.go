@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -111,9 +113,9 @@ func codebuddyBaseURL(auth *cliproxyauth.Auth) string {
 }
 
 // Execute performs a non-streaming chat completion request to Codebuddy.
-// For the International endpoint (www.codebuddy.ai), non-streaming is not
-// supported upstream, so this method internally calls ExecuteStream and
-// collects the full response.
+// CodeBuddy's native clients call the chat endpoint in streaming mode. Some
+// CodeBuddy environments reject non-streaming requests, so non-streaming client
+// calls are fulfilled by streaming upstream and aggregating the SSE chunks.
 func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (resp cliproxyexecutor.Response, err error) {
 	from := opts.SourceFormat
 	if from.String() == "claude" {
@@ -121,12 +123,6 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 		uid, token := codebuddyCreds(auth)
 		auth.Attributes["api_key"] = codebuddyBearerToken(uid, token)
 		return e.ClaudeExecutor.Execute(ctx, auth, req, opts)
-	}
-
-	// International endpoint does not support non-streaming requests.
-	// Redirect to ExecuteStream internally and collect the result.
-	if isCodebuddyIntl(auth) {
-		return e.executeIntlViaStream(ctx, auth, req, opts)
 	}
 
 	baseModel := thinking.ParseSuffix(req.Model).ModelName
@@ -142,8 +138,8 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 		originalPayloadSource = opts.OriginalRequest
 	}
 	originalPayload := bytes.Clone(originalPayloadSource)
-	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, false)
-	body := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), false)
+	originalTranslated := sdktranslator.TranslateRequest(from, to, baseModel, originalPayload, true)
+	body := sdktranslator.TranslateRequest(from, to, baseModel, bytes.Clone(req.Payload), true)
 
 	// Strip codebuddy- prefix for upstream API
 	upstreamModel := stripCodebuddyPrefix(baseModel)
@@ -157,6 +153,16 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 		return resp, err
 	}
 	body = applyCodebuddyDefaultReasoning(body, baseModel, e.Identifier())
+	body = ensureIntlSystemMessage(body, isCodebuddyIntl(auth))
+
+	body, err = sjson.SetBytes(body, "stream", true)
+	if err != nil {
+		return resp, fmt.Errorf("codebuddy executor: failed to set stream in payload: %w", err)
+	}
+	body, err = sjson.SetBytes(body, "stream_options.include_usage", true)
+	if err != nil {
+		return resp, fmt.Errorf("codebuddy executor: failed to set stream_options in payload: %w", err)
+	}
 
 	requestedModel := helps.PayloadRequestedModel(opts, req.Model)
 	requestPath := helps.PayloadRequestPath(opts)
@@ -168,7 +174,7 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 	if err != nil {
 		return resp, err
 	}
-	applyCodebuddyHeaders(httpReq, uid, token, false, domain)
+	applyCodebuddyHeaders(httpReq, uid, token, true, domain)
 	var attrs map[string]string
 	if auth != nil {
 		attrs = auth.Attributes
@@ -217,6 +223,7 @@ func (e *CodebuddyExecutor) Execute(ctx context.Context, auth *cliproxyauth.Auth
 		return resp, err
 	}
 	helps.AppendAPIResponseChunk(ctx, e.cfg, data)
+	data = aggregateCodebuddyStream(data, baseModel)
 	reporter.Publish(ctx, helps.ParseOpenAIUsage(data))
 	var param any
 	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, body, data, &param)
@@ -258,13 +265,11 @@ func (e *CodebuddyExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 	}
 
 	intl := isCodebuddyIntl(auth)
-	if !intl {
-		body, err = thinking.ApplyThinking(body, req.Model, from.String(), "openai", e.Identifier())
-		if err != nil {
-			return nil, err
-		}
-		body = applyCodebuddyDefaultReasoning(body, baseModel, e.Identifier())
+	body, err = thinking.ApplyThinking(body, req.Model, from.String(), "openai", e.Identifier())
+	if err != nil {
+		return nil, err
 	}
+	body = applyCodebuddyDefaultReasoning(body, baseModel, e.Identifier())
 	body = ensureIntlSystemMessage(body, intl)
 
 	body, err = sjson.SetBytes(body, "stream_options.include_usage", true)
@@ -355,41 +360,6 @@ func (e *CodebuddyExecutor) ExecuteStream(ctx context.Context, auth *cliproxyaut
 		}
 	}()
 	return &cliproxyexecutor.StreamResult{Headers: httpResp.Header.Clone(), Chunks: out}, nil
-}
-
-// executeIntlViaStream handles non-streaming requests for the Codebuddy
-// International endpoint by executing a streaming request internally and
-// collecting all chunks into a single response payload.
-func (e *CodebuddyExecutor) executeIntlViaStream(ctx context.Context, auth *cliproxyauth.Auth, req cliproxyexecutor.Request, opts cliproxyexecutor.Options) (cliproxyexecutor.Response, error) {
-	streamResult, err := e.ExecuteStream(ctx, auth, req, opts)
-	if err != nil {
-		return cliproxyexecutor.Response{}, err
-	}
-	var collected [][]byte
-	for chunk := range streamResult.Chunks {
-		if chunk.Err != nil {
-			return cliproxyexecutor.Response{}, chunk.Err
-		}
-		collected = append(collected, chunk.Payload)
-	}
-	// Merge collected streaming chunks into a single non-stream response.
-	// The last chunk usually contains the full usage info.
-	if len(collected) == 0 {
-		return cliproxyexecutor.Response{Payload: []byte("{}"), Headers: streamResult.Headers}, nil
-	}
-	// Find the last chunk with usage data as the base for non-stream translation
-	var lastData []byte
-	for i := len(collected) - 1; i >= 0; i-- {
-		if len(collected[i]) > 0 {
-			lastData = collected[i]
-			break
-		}
-	}
-	from := opts.SourceFormat
-	to := sdktranslator.FromString("openai")
-	var param any
-	out := sdktranslator.TranslateNonStream(ctx, to, from, req.Model, opts.OriginalRequest, req.Payload, lastData, &param)
-	return cliproxyexecutor.Response{Payload: out, Headers: streamResult.Headers}, nil
 }
 
 // CountTokens estimates token count for Codebuddy requests.
@@ -571,6 +541,7 @@ func stripCodebuddyPrefix(model string) string {
 // that support thinking but have no explicit config (no suffix, no body parameter).
 // This matches the native CodeBuddy extension behavior: reasoning_effort="medium" by default.
 func applyCodebuddyDefaultReasoning(body []byte, baseModel string, providerKey string) []byte {
+	body = normalizeCodebuddyReasoningEffort(body)
 	if gjson.GetBytes(body, "reasoning_effort").Exists() {
 		return body
 	}
@@ -578,7 +549,7 @@ func applyCodebuddyDefaultReasoning(body []byte, baseModel string, providerKey s
 	if modelInfo == nil || modelInfo.Thinking == nil {
 		return body
 	}
-	result, err := sjson.SetBytes(body, "reasoning_effort", "medium")
+	result, err := sjson.SetBytes(body, "reasoning_effort", defaultCodebuddyReasoningEffort(baseModel))
 	if err != nil {
 		return body
 	}
@@ -587,4 +558,203 @@ func applyCodebuddyDefaultReasoning(body []byte, baseModel string, providerKey s
 		"provider": providerKey,
 	}).Debug("codebuddy: applied default reasoning_effort=medium |")
 	return result
+}
+
+func normalizeCodebuddyReasoningEffort(body []byte) []byte {
+	if strings.EqualFold(gjson.GetBytes(body, "reasoning_effort").String(), "xhigh") {
+		if result, err := sjson.SetBytes(body, "reasoning_effort", "high"); err == nil {
+			return result
+		}
+	}
+	return body
+}
+
+func defaultCodebuddyReasoningEffort(model string) string {
+	switch strings.ToLower(strings.TrimSpace(model)) {
+	case "deepseek-v3.2", "deepseek-v3-2-volc", "glm-4.6v", "hy3-preview", "kimi-k2.5", "kimi-k2-thinking", "minimax-m2.5":
+		return "high"
+	case "gemini-3.1-flash-lite", "glm-5.0-turbo", "glm-5.1", "glm-5v-turbo", "kimi-k2.6", "minimax-m2.7":
+		return "medium"
+	default:
+		return "medium"
+	}
+}
+
+type codebuddyStreamChoice struct {
+	Role            string
+	Content         strings.Builder
+	Reasoning       strings.Builder
+	FinishReason    string
+	NativeFinish    string
+	ToolCalls       map[int]*codebuddyStreamToolCall
+	ToolCallIndexes []int
+}
+
+type codebuddyStreamToolCall struct {
+	ID        string
+	Type      string
+	Name      string
+	Arguments strings.Builder
+}
+
+func aggregateCodebuddyStream(data []byte, fallbackModel string) []byte {
+	choices := map[int]*codebuddyStreamChoice{}
+	choiceIndexes := []int{}
+	id := ""
+	model := fallbackModel
+	created := time.Now().Unix()
+	usageRaw := ""
+
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	scanner.Buffer(nil, 1_048_576)
+	for scanner.Scan() {
+		raw := strings.TrimSpace(scanner.Text())
+		if raw == "" {
+			continue
+		}
+		for strings.HasPrefix(raw, "data:") {
+			raw = strings.TrimSpace(strings.TrimPrefix(raw, "data:"))
+		}
+		if raw == "" || raw == "[DONE]" || !gjson.Valid(raw) {
+			continue
+		}
+		chunk := gjson.Parse(raw)
+		if v := chunk.Get("id").String(); v != "" && id == "" {
+			id = v
+		}
+		if v := chunk.Get("model").String(); v != "" {
+			model = v
+		}
+		if v := chunk.Get("created").Int(); v > 0 {
+			created = v
+		}
+		if u := chunk.Get("usage"); u.Exists() && u.Raw != "" && u.Raw != "null" {
+			usageRaw = u.Raw
+		}
+		for _, c := range chunk.Get("choices").Array() {
+			index := int(c.Get("index").Int())
+			agg := choices[index]
+			if agg == nil {
+				agg = &codebuddyStreamChoice{ToolCalls: map[int]*codebuddyStreamToolCall{}}
+				choices[index] = agg
+				choiceIndexes = append(choiceIndexes, index)
+			}
+			delta := c.Get("delta")
+			if role := delta.Get("role").String(); role != "" {
+				agg.Role = role
+			}
+			agg.Content.WriteString(delta.Get("content").String())
+			agg.Reasoning.WriteString(delta.Get("reasoning_content").String())
+			if finish := c.Get("finish_reason").String(); finish != "" {
+				agg.FinishReason = finish
+			}
+			if finish := c.Get("native_finish_reason").String(); finish != "" {
+				agg.NativeFinish = finish
+			}
+			for pos, tc := range delta.Get("tool_calls").Array() {
+				toolIndex := int(tc.Get("index").Int())
+				if !tc.Get("index").Exists() {
+					toolIndex = pos
+				}
+				tool := agg.ToolCalls[toolIndex]
+				if tool == nil {
+					tool = &codebuddyStreamToolCall{}
+					agg.ToolCalls[toolIndex] = tool
+					agg.ToolCallIndexes = append(agg.ToolCallIndexes, toolIndex)
+				}
+				if v := tc.Get("id").String(); v != "" {
+					tool.ID = v
+				}
+				if v := tc.Get("type").String(); v != "" {
+					tool.Type = v
+				}
+				if v := tc.Get("function.name").String(); v != "" {
+					tool.Name = v
+				}
+				tool.Arguments.WriteString(tc.Get("function.arguments").String())
+			}
+		}
+	}
+
+	if id == "" {
+		id = "chatcmpl-codebuddy"
+	}
+	sort.Ints(choiceIndexes)
+	out := map[string]any{
+		"id":      id,
+		"object":  "chat.completion",
+		"created": created,
+		"model":   model,
+		"choices": buildCodebuddyNonStreamChoices(choiceIndexes, choices),
+	}
+	if usageRaw != "" {
+		var usage any
+		if err := json.Unmarshal([]byte(usageRaw), &usage); err == nil {
+			out["usage"] = usage
+		}
+	}
+	encoded, err := json.Marshal(out)
+	if err != nil {
+		return []byte(`{"object":"chat.completion","choices":[]}`)
+	}
+	return encoded
+}
+
+func buildCodebuddyNonStreamChoices(indexes []int, choices map[int]*codebuddyStreamChoice) []map[string]any {
+	out := make([]map[string]any, 0, len(indexes))
+	for _, index := range indexes {
+		choice := choices[index]
+		if choice == nil {
+			continue
+		}
+		role := choice.Role
+		if role == "" {
+			role = "assistant"
+		}
+		message := map[string]any{
+			"role":    role,
+			"content": choice.Content.String(),
+		}
+		if reasoning := choice.Reasoning.String(); reasoning != "" {
+			message["reasoning_content"] = reasoning
+		}
+		if len(choice.ToolCalls) > 0 {
+			sort.Ints(choice.ToolCallIndexes)
+			tools := make([]map[string]any, 0, len(choice.ToolCallIndexes))
+			for _, toolIndex := range choice.ToolCallIndexes {
+				tool := choice.ToolCalls[toolIndex]
+				if tool == nil {
+					continue
+				}
+				toolType := tool.Type
+				if toolType == "" {
+					toolType = "function"
+				}
+				tools = append(tools, map[string]any{
+					"id":    tool.ID,
+					"type":  toolType,
+					"index": toolIndex,
+					"function": map[string]any{
+						"name":      tool.Name,
+						"arguments": tool.Arguments.String(),
+					},
+				})
+			}
+			message["tool_calls"] = tools
+		}
+		out = append(out, map[string]any{
+			"index":                index,
+			"message":              message,
+			"finish_reason":        emptyToNil(choice.FinishReason),
+			"native_finish_reason": emptyToNil(choice.NativeFinish),
+		})
+	}
+	return out
+}
+
+func emptyToNil(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
 }
