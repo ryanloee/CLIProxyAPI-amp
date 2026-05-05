@@ -111,7 +111,6 @@ func newDefaultAuthManager() *sdkAuth.Manager {
 		sdkAuth.NewKimiAuthenticator(),
 		sdkAuth.NewCodebuddyAuthenticator(),
 		sdkAuth.NewCodebuddyIntlAuthenticator(),
-		sdkAuth.NewTraeAuthenticator(),
 	)
 }
 
@@ -433,8 +432,6 @@ func (s *Service) ensureExecutorsForAuthWithMode(a *coreauth.Auth, forceReplace 
 		s.coreManager.RegisterExecutor(executor.NewCodebuddyExecutor(s.cfg))
 	case "codebuddy-intl":
 		s.coreManager.RegisterExecutor(executor.NewCodebuddyIntlExecutor(s.cfg))
-	case "trae":
-		s.coreManager.RegisterExecutor(executor.NewTraeExecutor(s.cfg))
 	default:
 		providerKey := strings.ToLower(strings.TrimSpace(a.Provider))
 		if providerKey == "" {
@@ -951,9 +948,6 @@ func (s *Service) registerModelsForAuth(a *coreauth.Auth) {
 		models = applyExcludedModels(models, excluded)
 	case "codebuddy-intl":
 		models = registry.GetCodebuddyIntlModels()
-		models = applyExcludedModels(models, excluded)
-	case "trae":
-		models = registry.GetTraeModels()
 		models = applyExcludedModels(models, excluded)
 	default:
 		// Handle OpenAI-compatibility providers by name using config

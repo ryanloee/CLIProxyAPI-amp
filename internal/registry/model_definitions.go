@@ -23,7 +23,6 @@ type staticModelsJSON struct {
 	Antigravity   []*ModelInfo `json:"antigravity"`
 	Codebuddy     []*ModelInfo `json:"codebuddy"`
 	CodebuddyIntl []*ModelInfo `json:"codebuddy-intl"`
-	Trae          []*ModelInfo `json:"trae"`
 }
 
 // GetClaudeModels returns the standard Claude model definitions.
@@ -89,11 +88,6 @@ func GetCodebuddyModels() []*ModelInfo {
 // GetCodebuddyIntlModels returns the Codebuddy International (www.codebuddy.ai) model definitions.
 func GetCodebuddyIntlModels() []*ModelInfo {
 	return cloneModelInfos(getModels().CodebuddyIntl)
-}
-
-// GetTraeModels returns the standard Trae international model definitions.
-func GetTraeModels() []*ModelInfo {
-	return cloneModelInfos(getModels().Trae)
 }
 
 // WithCodexBuiltins injects hard-coded Codex-only model definitions that should
@@ -208,8 +202,6 @@ func GetStaticModelDefinitionsByChannel(channel string) []*ModelInfo {
 		return GetCodebuddyModels()
 	case "codebuddy-intl":
 		return GetCodebuddyIntlModels()
-	case "trae":
-		return GetTraeModels()
 	default:
 		return nil
 	}
@@ -234,7 +226,6 @@ func LookupStaticModelInfo(modelID string) *ModelInfo {
 		data.Antigravity,
 		data.Codebuddy,
 		data.CodebuddyIntl,
-		data.Trae,
 	}
 	for _, models := range allModels {
 		for _, m := range models {

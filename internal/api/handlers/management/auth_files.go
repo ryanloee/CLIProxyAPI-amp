@@ -28,7 +28,6 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/codex"
 	geminiAuth "github.com/router-for-me/CLIProxyAPI/v6/internal/auth/gemini"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/kimi"
-	"github.com/router-for-me/CLIProxyAPI/v6/internal/auth/trae"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/interfaces"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/misc"
 	"github.com/router-for-me/CLIProxyAPI/v6/internal/registry"
@@ -2373,105 +2372,6 @@ func (h *Handler) RequestCodebuddyIntlToken(c *gin.Context) {
 		log.Infof("Codebuddy Intl authentication successful! Token saved to %s", savedPath)
 		CompleteOAuthSession(state)
 		CompleteOAuthSessionsByProvider("codebuddy-intl")
-	}()
-
-	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})
-}
-
-func (h *Handler) RequestTraeToken(c *gin.Context) {
-	ctx := context.Background()
-	ctx = PopulateAuthContext(ctx, c)
-
-	state := fmt.Sprintf("trae-%d", time.Now().UnixNano())
-	authSvc := trae.NewTraeAuth(h.cfg)
-
-	deviceFlow, errStartLogin := authSvc.StartLogin(ctx)
-	if errStartLogin != nil {
-		log.Errorf("Failed to start Trae login: %v", errStartLogin)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to start trae login"})
-		return
-	}
-	authURL := deviceFlow.VerificationURIComplete
-	if authURL == "" {
-		authURL = deviceFlow.VerificationURI
-	}
-
-	RegisterOAuthSession(state, "trae")
-
-	go func() {
-		authBundle, errWait := authSvc.WaitForAuthorization(ctx, deviceFlow)
-		if errWait != nil {
-			SetOAuthSessionError(state, "Authentication failed")
-			log.Errorf("Trae authentication failed: %v", errWait)
-			return
-		}
-
-		var expired string
-		if authBundle.TokenData.ExpiresAt > 0 {
-			expired = time.Unix(authBundle.TokenData.ExpiresAt, 0).UTC().Format(time.RFC3339)
-		}
-
-		label := "Trae User"
-		tokenStorage := &trae.TraeTokenStorage{
-			AccessToken:  authBundle.TokenData.AccessToken,
-			RefreshToken: authBundle.TokenData.RefreshToken,
-			TokenType:    authBundle.TokenData.TokenType,
-			ExpiresAt:    authBundle.TokenData.ExpiresAt,
-			LoginHost:    authBundle.TokenData.LoginHost,
-			Expired:      expired,
-			Type:         "trae",
-		}
-		if authBundle.AccountInfo != nil {
-			if authBundle.AccountInfo.Email != "" {
-				label = authBundle.AccountInfo.Email
-				tokenStorage.Email = authBundle.AccountInfo.Email
-			}
-			if authBundle.AccountInfo.UserID != "" {
-				tokenStorage.UserID = authBundle.AccountInfo.UserID
-			}
-			if authBundle.AccountInfo.Nickname != "" {
-				tokenStorage.Nickname = authBundle.AccountInfo.Nickname
-			}
-		}
-
-		metadata := map[string]any{
-			"type":          "trae",
-			"access_token":  authBundle.TokenData.AccessToken,
-			"refresh_token": authBundle.TokenData.RefreshToken,
-			"token_type":    authBundle.TokenData.TokenType,
-			"expires_at":    authBundle.TokenData.ExpiresAt,
-			"login_host":    authBundle.TokenData.LoginHost,
-			"timestamp":     time.Now().UnixMilli(),
-		}
-		if authBundle.AccountInfo != nil && authBundle.AccountInfo.UserID != "" {
-			metadata["user_id"] = authBundle.AccountInfo.UserID
-		}
-		if expired != "" {
-			metadata["expired"] = expired
-		}
-		if authBundle.LoginRegion != "" {
-			metadata["login_region"] = authBundle.LoginRegion
-		}
-
-		fileName := fmt.Sprintf("trae-%d.json", time.Now().UnixMilli())
-		record := &coreauth.Auth{
-			ID:       fileName,
-			Provider: "trae",
-			FileName: fileName,
-			Label:    label,
-			Storage:  tokenStorage,
-			Metadata: metadata,
-		}
-		savedPath, errSave := h.saveTokenRecord(ctx, record)
-		if errSave != nil {
-			log.Errorf("Failed to save Trae tokens: %v", errSave)
-			SetOAuthSessionError(state, "Failed to save authentication tokens")
-			return
-		}
-
-		log.Infof("Trae authentication successful! Token saved to %s", savedPath)
-		CompleteOAuthSession(state)
-		CompleteOAuthSessionsByProvider("trae")
 	}()
 
 	c.JSON(200, gin.H{"status": "ok", "url": authURL, "state": state})

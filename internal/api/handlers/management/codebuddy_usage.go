@@ -24,16 +24,16 @@ const (
 )
 
 type codebuddyUsageResult struct {
-	Provider      string                       `json:"provider"`
-	Label         string                       `json:"label,omitempty"`
-	AuthID        string                       `json:"auth_id"`
-	Domain        string                       `json:"domain,omitempty"`
-	UID           string                       `json:"uid,omitempty"`
-	PlanType      string                       `json:"plan_type,omitempty"`
-	DosageNotify  *codebuddyDosageNotifyData   `json:"dosage_notify,omitempty"`
-	PaymentType   string                       `json:"payment_type,omitempty"`
-	UserResources *codebuddyUserResourceData   `json:"user_resources,omitempty"`
-	Error         string                       `json:"error,omitempty"`
+	Provider      string                     `json:"provider"`
+	Label         string                     `json:"label,omitempty"`
+	AuthID        string                     `json:"auth_id"`
+	Domain        string                     `json:"domain,omitempty"`
+	UID           string                     `json:"uid,omitempty"`
+	PlanType      string                     `json:"plan_type,omitempty"`
+	DosageNotify  *codebuddyDosageNotifyData `json:"dosage_notify,omitempty"`
+	PaymentType   string                     `json:"payment_type,omitempty"`
+	UserResources *codebuddyUserResourceData `json:"user_resources,omitempty"`
+	Error         string                     `json:"error,omitempty"`
 }
 
 type codebuddyDosageNotifyData struct {
@@ -43,8 +43,8 @@ type codebuddyDosageNotifyData struct {
 }
 
 type codebuddyUserResourceData struct {
-	TotalCount int64                        `json:"total_count,omitempty"`
-	Packages   []codebuddyResourcePackage   `json:"packages,omitempty"`
+	TotalCount int64                      `json:"total_count,omitempty"`
+	Packages   []codebuddyResourcePackage `json:"packages,omitempty"`
 }
 
 type codebuddyResourcePackage struct {
@@ -203,10 +203,10 @@ func queryUserResource(ctx context.Context, client *http.Client, baseURL, token,
 	url := strings.TrimRight(baseURL, "/") + "/v2/billing/meter/get-user-resource"
 	now := time.Now()
 	reqBody, _ := json.Marshal(map[string]any{
-		"PageNumber":  1,
-		"PageSize":    100,
-		"ProductCode": "p_tcaca",
-		"Status":      []int{0, 3},
+		"PageNumber":               1,
+		"PageSize":                 100,
+		"ProductCode":              "p_tcaca",
+		"Status":                   []int{0, 3},
 		"PackageEndTimeRangeBegin": now.Format("2006-01-02 15:04:05"),
 		"PackageEndTimeRangeEnd":   now.Add(365 * 24 * 100 * time.Hour).Format("2006-01-02 15:04:05"),
 	})
@@ -351,7 +351,7 @@ func (h *Handler) GetCodebuddyUsage(c *gin.Context) {
 			continue
 		}
 		provider := strings.ToLower(strings.TrimSpace(auth.Provider))
-		if provider != "codebuddy" && provider != "codebuddy-intl" && provider != "trae" {
+		if provider != "codebuddy" && provider != "codebuddy-intl" {
 			continue
 		}
 
@@ -385,9 +385,6 @@ func (h *Handler) GetCodebuddyUsage(c *gin.Context) {
 			}
 
 			baseURL := codebuddyBillingBaseURL(auth)
-			if provider == "trae" {
-				baseURL = "https://www.codebuddy.ai"
-			}
 
 			var errs []string
 

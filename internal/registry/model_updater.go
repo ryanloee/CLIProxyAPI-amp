@@ -124,7 +124,7 @@ func tryRefreshModels(ctx context.Context, label string) {
 	// Detect changes before updating store.
 	changed := detectChangedProviders(oldData, parsed)
 
-	// Update store with new data, preserving codebuddy/trae models from embedded data.
+	// Update store with new data, preserving custom provider models from embedded data.
 	modelsCatalogStore.mu.Lock()
 	preserveCustomProviders(modelsCatalogStore.data, parsed)
 	modelsCatalogStore.data = parsed
@@ -190,7 +190,7 @@ func fetchModelsFromRemote(ctx context.Context) (*staticModelsJSON, string) {
 	return nil, ""
 }
 
-// preserveCustomProviders copies codebuddy/trae models from the old catalog into
+// preserveCustomProviders copies custom provider models from the old catalog into
 // the new one when the remote source does not include them.
 func preserveCustomProviders(oldData, newData *staticModelsJSON) {
 	if oldData == nil || newData == nil {
@@ -201,9 +201,6 @@ func preserveCustomProviders(oldData, newData *staticModelsJSON) {
 	}
 	if len(newData.CodebuddyIntl) == 0 && len(oldData.CodebuddyIntl) > 0 {
 		newData.CodebuddyIntl = oldData.CodebuddyIntl
-	}
-	if len(newData.Trae) == 0 && len(oldData.Trae) > 0 {
-		newData.Trae = oldData.Trae
 	}
 }
 
@@ -235,7 +232,6 @@ func detectChangedProviders(oldData, newData *staticModelsJSON) []string {
 		{"antigravity", oldData.Antigravity, newData.Antigravity},
 		{"codebuddy", oldData.Codebuddy, newData.Codebuddy},
 		{"codebuddy-intl", oldData.CodebuddyIntl, newData.CodebuddyIntl},
-		{"trae", oldData.Trae, newData.Trae},
 	}
 
 	seen := make(map[string]bool, len(sections))
