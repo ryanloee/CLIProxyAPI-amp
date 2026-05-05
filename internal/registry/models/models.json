@@ -2220,23 +2220,6 @@
       }
     },
     {
-      "id": "hy3-preview",
-      "object": "model",
-      "created": 1769472000,
-      "owned_by": "tencent",
-      "type": "openai",
-      "display_name": "Hunyuan 3 Preview",
-      "description": "Tencent Hunyuan 3 Preview via Tencent Codebuddy",
-      "context_length": 128000,
-      "max_completion_tokens": 32000,
-      "thinking": {
-        "min": 0,
-        "max": 32000,
-        "zero_allowed": true,
-        "dynamic_allowed": true
-      }
-    },
-    {
       "id": "minimax-m2.5",
       "object": "model",
       "created": 1769472000,
